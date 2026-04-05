@@ -1,143 +1,198 @@
-# Reliable Recording Chunking Pipeline
+# Swades AI: Voice Recorder + Live Transcription
 
-An assignment for building a reliable chunking setup that ensures recording data stays accurate in all cases — no data loss, no silent failures.
+A working full-stack app for:
+- recording microphone audio in the browser (chunked WAV),
+- uploading chunks to FastAPI,
+- getting live transcription from AssemblyAI,
+- showing transcript in the Next.js UI.
 
-## How It Works
+## Stack
 
+- Frontend: Next.js 16 + React 19 + Tailwind
+- Backend: FastAPI + SQLAlchemy
+- Transcription: AssemblyAI API
+- DB: PostgreSQL (Docker, optional for chunk ack records)
+- Monorepo: Turborepo + npm workspaces
+
+## Repository Layout
+
+```text
+.
+├── apps/
+│   └── web/                 # Next.js frontend
+├── fastapi-server/          # FastAPI backend
+│   ├── main.py
+│   ├── db.py
+│   ├── docker-compose.yml
+│   ├── .env.example
+│   └── requirements.txt
+└── packages/                # shared packages (ui/env/etc.)
 ```
-Client (Browser)
-    │
-    ├── 1. Record & chunk data on the client side
-    ├── 2. Store chunks in OPFS (Origin Private File System)
-    ├── 3. Upload chunks to a storage bucket
-    ├── 4. On success → acknowledge (ack) to the database
-    │
-    └── Recovery: if DB has ack but chunk is missing from bucket
-        └── Re-send from OPFS → bucket
-```
 
-**Main objective:** In all cases, the recording data stays accurate. OPFS acts as the durable client-side buffer — chunks are only cleared after the bucket and DB are both confirmed in sync.
+## 1) Local Setup (Fastest)
 
-### Flow Details
+### Prerequisites
 
-1. **Client-side chunking** — Recording data is split into chunks in the browser
-2. **OPFS storage** — Each chunk is persisted to the Origin Private File System before any network call, so nothing is lost if the tab closes or the network drops
-3. **Bucket upload** — Chunks are uploaded to a storage bucket (can be a local bucket for testing, e.g. MinIO or a local S3-compatible store)
-4. **DB acknowledgment** — Once the bucket confirms receipt, an ack record is written to the database
-5. **Reconciliation** — If the DB shows an ack but the chunk is missing from the bucket (e.g. bucket purge, replication lag), the client re-uploads from OPFS to restore consistency
+- Node.js 20+
+- npm 10+
+- Python 3.9+
+- Docker Desktop (for Postgres)
+- AssemblyAI API key
 
-## Tech Stack
+### Install frontend deps
 
-- **Next.js** — Frontend (App Router)
-- **Hono** — Backend API server
-- **Bun** — Runtime
-- **Drizzle ORM + PostgreSQL** — Database
-- **TailwindCSS + shadcn/ui** — UI
-- **Turborepo** — Monorepo build system
-
-## Getting Started
+From repo root:
 
 ```bash
 npm install
 ```
 
-### Database Setup
-
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/server/.env` with your PostgreSQL connection details.
-3. Apply the schema:
+### Setup backend env
 
 ```bash
-npm run db:push
+cp fastapi-server/.env.example fastapi-server/.env.local
 ```
 
-### Run Development
+Edit `fastapi-server/.env.local` and set:
+
+```env
+ASSEMBLYAI_API_KEY=your_real_key
+FRONTEND_ORIGIN=http://localhost:3001
+TRANSCRIPTION_PROVIDER=assemblyai
+ASSEMBLYAI_SPEECH_MODELS=universal-3-pro,universal-2
+# Optional:
+# ASSEMBLYAI_LANGUAGE_CODE=en
+```
+
+### Setup frontend env
 
 ```bash
-npm run dev
+cp apps/web/.env.example apps/web/.env.local
 ```
 
-- Web app: [http://localhost:3001](http://localhost:3001)
-- API server: [http://localhost:3000](http://localhost:3000)
+`apps/web/.env.local`:
 
-## Load Testing
-
-Target: **300,000 requests** to validate the chunking pipeline under heavy load.
-
-### Setup
-
-Use a load testing tool like [k6](https://k6.io), [autocannon](https://github.com/mcollina/autocannon), or [artillery](https://artillery.io) to simulate concurrent chunk uploads.
-
-Example with **k6**:
-
-```js
-import http from "k6/http";
-import { check } from "k6";
-
-export const options = {
-  scenarios: {
-    chunk_uploads: {
-      executor: "constant-arrival-rate",
-      rate: 5000,           // 5,000 req/s
-      timeUnit: "1s",
-      duration: "1m",       // → 300K requests in 60s
-      preAllocatedVUs: 500,
-      maxVUs: 1000,
-    },
-  },
-};
-
-export default function () {
-  const payload = JSON.stringify({
-    chunkId: `chunk-${__VU}-${__ITER}`,
-    data: "x".repeat(1024), // 1KB dummy chunk
-  });
-
-  const res = http.post("http://localhost:3000/api/chunks/upload", payload, {
-    headers: { "Content-Type": "application/json" },
-  });
-
-  check(res, {
-    "status 200": (r) => r.status === 200,
-  });
-}
+```env
+NEXT_PUBLIC_SERVER_URL=http://localhost:8000
 ```
 
-Run:
+### Install backend Python deps
 
 ```bash
-k6 run load-test.js
+cd fastapi-server
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
 ```
 
-### What to Validate
+## 2) Run Locally
 
-- **No data loss** — every ack in the DB has a matching chunk in the bucket
-- **OPFS recovery** — chunks survive client disconnects and can be re-uploaded
-- **Throughput** — server handles sustained 5K req/s without dropping chunks
-- **Consistency** — reconciliation catches and repairs any bucket/DB mismatches after the run
+### Terminal A: Backend
 
-## Project Structure
-
-```
-recoding-assignment/
-├── apps/
-│   ├── web/         # Frontend (Next.js) — chunking, OPFS, upload logic
-│   └── server/      # Backend API (Hono) — bucket upload, DB ack
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── db/          # Drizzle ORM schema & queries
-│   ├── env/         # Type-safe environment config
-│   └── config/      # Shared TypeScript config
+```bash
+cd fastapi-server
+source .venv/bin/activate
+docker compose up -d
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-## Available Scripts
+Health check:
 
-- `npm run dev` — Start all apps in development mode
-- `npm run build` — Build all apps
-- `npm run dev:web` — Start only the web app
-- `npm run dev:server` — Start only the server
-- `npm run check-types` — TypeScript type checking
-- `npm run db:push` — Push schema changes to database
-- `npm run db:generate` — Generate database client/types
-- `npm run db:migrate` — Run database migrations
-- `npm run db:studio` — Open database studio UI
+```bash
+curl http://localhost:8000/health
+```
+
+### Terminal B: Frontend
+
+From repo root:
+
+```bash
+npm run dev:web
+```
+
+Open:
+
+- `http://localhost:3001`
+
+Important: use `localhost` (not LAN IP) for reliable microphone permissions.
+
+## 3) How It Works
+
+1. Browser records audio and creates WAV chunks (~5s each).
+2. Frontend sends chunk to `POST /api/chunks/upload`.
+3. Backend uploads/transcribes with AssemblyAI.
+4. UI appends transcript text as results return.
+5. Silence-only chunks are ignored (no noisy error in UI).
+
+## 4) API Endpoints
+
+- `GET /health`
+  - backend status + transcription provider info
+- `POST /api/chunks/upload`
+  - body:
+    - `chunkId: string`
+    - `dataBase64: string` (audio payload)
+    - `mimeType: "audio/wav"`
+  - response:
+    - `status`
+    - `chunkId`
+    - `transcription`
+    - `transcription_error`
+- `GET /api/chunks/reconcile`
+  - checks missing chunk files against DB ack list
+
+## 5) Quick Deployment (30-Minute Path)
+
+### Frontend (Vercel)
+
+1. Import this repo in Vercel.
+2. Set project root to `apps/web`.
+3. Add env:
+   - `NEXT_PUBLIC_SERVER_URL=https://<your-backend-domain>`
+4. Deploy.
+
+### Backend (Render / Railway / Fly.io)
+
+1. Deploy `fastapi-server` as Python service.
+2. Build/install command:
+   - `pip install -r requirements.txt`
+3. Start command:
+   - `uvicorn main:app --host 0.0.0.0 --port $PORT`
+4. Add env vars from `fastapi-server/.env.example`.
+5. Set `FRONTEND_ORIGIN` to your deployed frontend URL.
+
+### Database
+
+- For local/demo: use current Docker Postgres.
+- For cloud deploy: point `DATABASE_URL` in `fastapi-server/db.py` to managed Postgres (recommended next step).
+
+## 6) Useful Commands
+
+From repo root:
+
+- `npm run dev:web` -> run web app
+- `npm run check-types` -> TypeScript checks
+- `npm run build` -> monorepo build
+
+## 7) Troubleshooting
+
+- `ASSEMBLYAI_API_KEY is not set on backend`
+  - ensure key is in `fastapi-server/.env.local`
+  - restart backend
+
+- AssemblyAI 400 with `speech_models` required
+  - ensure `ASSEMBLYAI_SPEECH_MODELS=universal-3-pro,universal-2`
+
+- Mic/Record button appears not working
+  - open app on `http://localhost:3001`
+  - allow microphone permission in browser
+
+- Slow transcription
+  - network/API latency + chunk-by-chunk processing is expected
+
+## Security Notes
+
+- Never commit real API keys.
+- If a key is exposed, rotate it immediately in provider dashboard.
+
