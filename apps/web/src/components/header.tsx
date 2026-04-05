@@ -7,10 +7,7 @@ import { ModeToggle } from "./mode-toggle";
 export default function Header() {
   const pathname = usePathname();
 
-  const links = [
-    { to: "/", label: "Home" },
-    { to: "/recorder", label: "Recorder" },
-  ] as const;
+  const links = [{ to: "/", label: "Home" }] as const;
 
   return (
     <header className="border-border/60 border-b bg-background/70 backdrop-blur-xl">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, Mic, Pause, Play, Square, Trash2 } from "lucide-react";
+import { Loader2, Mic, Pause, Play, Square } from "lucide-react";
 
 import { env } from "@my-better-t-app/env/web";
 import { Button } from "@my-better-t-app/ui/components/button";
@@ -22,67 +22,12 @@ function formatTime(seconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(remainingSeconds).padStart(2, "0")}.${tenths}`;
 }
 
-function formatDuration(seconds: number) {
-  return `${seconds.toFixed(1)}s`;
-}
-
-function ChunkRow({ chunk, index }: { chunk: WavChunk; index: number }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-
-  const toggle = () => {
-    const audioElement = audioRef.current;
-    if (!audioElement) {
-      return;
-    }
-    if (playing) {
-      audioElement.pause();
-      audioElement.currentTime = 0;
-      setPlaying(false);
-    } else {
-      void audioElement.play();
-      setPlaying(true);
-    }
-  };
-
-  const download = () => {
-    const anchor = document.createElement("a");
-    anchor.href = chunk.url;
-    anchor.download = `chunk-${index + 1}.wav`;
-    anchor.click();
-  };
-
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-sm border border-border/50 bg-muted/30 px-3 py-2">
-      <audio
-        ref={audioRef}
-        src={chunk.url}
-        onEnded={() => setPlaying(false)}
-        preload="none"
-      />
-      <span className="text-xs font-medium text-muted-foreground tabular-nums">
-        #{index + 1}
-      </span>
-      <span className="text-xs tabular-nums">{formatDuration(chunk.duration)}</span>
-      <span className="text-[10px] text-muted-foreground">16kHz PCM</span>
-      <div className="ml-auto flex gap-1">
-        <Button variant="ghost" size="icon-xs" onClick={toggle}>
-          {playing ? <Square className="size-3" /> : <Play className="size-3" />}
-        </Button>
-        <Button variant="ghost" size="icon-xs" onClick={download}>
-          <Download className="size-3" />
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 export default function RecorderScreen() {
   const [deviceId] = useState<string | undefined>();
   const uploadedChunkIdsRef = useRef<Set<string>>(new Set());
   const [transcript, setTranscript] = useState("");
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [pendingUploads, setPendingUploads] = useState(0);
   const {
     status,
     start,
@@ -92,13 +37,13 @@ export default function RecorderScreen() {
     chunks,
     elapsed,
     stream,
-    clearChunks,
     lastError,
   } = useRecorder({ chunkDuration: 5, deviceId });
 
   const isRecording = status === "recording";
   const isPaused = status === "paused";
   const isActive = isRecording || isPaused;
+  const isTranscribing = pendingUploads > 0;
 
   const handlePrimary = useCallback(() => {
     if (isActive) {
@@ -109,7 +54,7 @@ export default function RecorderScreen() {
   }, [isActive, start, stop]);
 
   const uploadChunkForTranscription = useCallback(async (chunk: WavChunk) => {
-    setIsTranscribing(true);
+    setPendingUploads((value) => value + 1);
     setUploadError(null);
     try {
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -169,16 +114,9 @@ export default function RecorderScreen() {
         error instanceof Error ? error.message : "Failed to upload and transcribe chunk.";
       setUploadError(message);
     } finally {
-      setIsTranscribing(false);
+      setPendingUploads((value) => Math.max(0, value - 1));
     }
   }, []);
-
-  const handleClearAll = useCallback(() => {
-    clearChunks();
-    uploadedChunkIdsRef.current.clear();
-    setTranscript("");
-    setUploadError(null);
-  }, [clearChunks]);
 
   useEffect(() => {
     for (const chunk of chunks) {
@@ -193,6 +131,15 @@ export default function RecorderScreen() {
   return (
     <main className="overflow-y-auto px-4 py-8">
       <div className="container mx-auto flex max-w-lg flex-col items-center gap-6">
+        <div className="w-full">
+          <h1 className="text-center text-2xl font-semibold tracking-tight">
+            Voice Recorder & Transcription
+          </h1>
+          <p className="mt-1 text-center text-sm text-muted-foreground">
+            Record audio chunks and get live transcript from server
+          </p>
+        </div>
+
         <Card className="w-full">
           <CardHeader>
             <CardTitle>Recorder</CardTitle>
@@ -275,10 +222,16 @@ export default function RecorderScreen() {
           <CardHeader>
             <CardTitle>Transcription</CardTitle>
             <CardDescription>
-              {isTranscribing ? "Uploading and transcribing..." : "Live transcript from server"}
+              {isTranscribing ? "Processing audio chunks..." : "Live transcript from server"}
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {isTranscribing ? (
+              <div className="mb-3 flex items-center gap-2 rounded-sm border border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Transcribing... this can take a few seconds.
+              </div>
+            ) : null}
             <p className="min-h-12 text-sm leading-relaxed text-foreground">
               {transcript.length > 0
                 ? transcript
@@ -289,29 +242,6 @@ export default function RecorderScreen() {
             ) : null}
           </CardContent>
         </Card>
-
-        {chunks.length > 0 ? (
-          <Card className="w-full">
-            <CardHeader>
-              <CardTitle>Chunks</CardTitle>
-              <CardDescription>{chunks.length} recorded</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-2">
-              {chunks.map((chunk, index) => (
-                <ChunkRow key={chunk.id} chunk={chunk} index={index} />
-              ))}
-              <Button
-                variant="ghost"
-                size="sm"
-                className="mt-2 gap-1.5 self-end text-destructive"
-                onClick={handleClearAll}
-              >
-                <Trash2 className="size-3" />
-                Clear all
-              </Button>
-            </CardContent>
-          </Card>
-        ) : null}
       </div>
     </main>
   );
