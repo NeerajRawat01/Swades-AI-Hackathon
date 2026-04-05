@@ -181,27 +181,32 @@ async def upload_chunk(chunk: Chunk):
         with open(file_path, "w") as f:
             f.write(payload_text)
 
-    # Insert into DB (ack)
-    with engine.connect() as conn:
-        conn.execute(
-            text(
-                "CREATE TABLE IF NOT EXISTS chunks ("
-                "chunk_id TEXT PRIMARY KEY, "
-                "created_at TIMESTAMP DEFAULT NOW()"
-                ")"
+    db_error = None
+    # Insert into DB (ack) if DB is available
+    try:
+        with engine.connect() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS chunks ("
+                    "chunk_id TEXT PRIMARY KEY, "
+                    "created_at TIMESTAMP DEFAULT NOW()"
+                    ")"
+                )
             )
-        )
-        conn.execute(
-            text("INSERT INTO chunks (chunk_id) VALUES (:cid) ON CONFLICT DO NOTHING"),
-            {"cid": chunk.chunkId}
-        )
-        conn.commit()
+            conn.execute(
+                text("INSERT INTO chunks (chunk_id) VALUES (:cid) ON CONFLICT DO NOTHING"),
+                {"cid": chunk.chunkId}
+            )
+            conn.commit()
+    except Exception as exc:
+        db_error = str(exc)
 
     return {
         "status": "uploaded",
         "chunkId": chunk.chunkId,
         "transcription": transcription,
         "transcription_error": transcription_error,
+        "db_error": db_error,
     }
 
 
@@ -209,9 +214,12 @@ async def upload_chunk(chunk: Chunk):
 async def reconcile():
     missing = []
 
-    with engine.connect() as conn:
-        result = conn.execute(text("SELECT chunk_id FROM chunks"))
-        chunk_ids = [row[0] for row in result]
+    try:
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT chunk_id FROM chunks"))
+            chunk_ids = [row[0] for row in result]
+    except Exception as exc:
+        return {"missing_chunks": missing, "db_error": str(exc)}
 
     for cid in chunk_ids:
         file_path = f"{UPLOAD_DIR}/{cid}.txt"
