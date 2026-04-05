@@ -48,8 +48,8 @@ assembly_timeout_sec = int(os.getenv("ASSEMBLYAI_TIMEOUT_SEC", "180"))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_origin],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
