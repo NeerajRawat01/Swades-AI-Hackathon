@@ -1,1 +1,45 @@
 @import "@my-better-t-app/ui/globals.css";
+
+@layer base {
+  :root {
+    --hero-spot-a: color-mix(in oklch, var(--chart-2) 24%, transparent);
+    --hero-spot-b: color-mix(in oklch, var(--chart-1) 18%, transparent);
+    --hero-grid: color-mix(in oklch, var(--border) 55%, transparent);
+  }
+
+  body {
+    font-family: var(--font-space-grotesk), sans-serif;
+  }
+}
+
+@layer components {
+  .app-shell {
+    background:
+      radial-gradient(circle at 12% 14%, var(--hero-spot-a), transparent 35%),
+      radial-gradient(circle at 90% 6%, var(--hero-spot-b), transparent 40%),
+      var(--background);
+  }
+
+  .hero-surface {
+    background-image:
+      linear-gradient(to right, var(--hero-grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--hero-grid) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+
+  .fade-up {
+    animation: fade-up 460ms ease-out both;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

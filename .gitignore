@@ -1,0 +1,32 @@
+# Node
+node_modules/
+npm-debug.log*
+.turbo/
+**/.turbo/
+
+# Next.js
+.next/
+out/
+
+# Env
+.env
+.env.local
+**/.env.local
+**/.env.*.local
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+**/.venv/
+
+# OS
+.DS_Store
+
+# Build
+dist/
+build/
+
+# FastAPI runtime artifacts
+fastapi-server/chunks/

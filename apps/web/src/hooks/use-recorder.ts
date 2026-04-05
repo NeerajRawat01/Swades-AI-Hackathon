@@ -69,6 +69,7 @@ export function useRecorder(options: UseRecorderOptions = {}) {
   const { chunkDuration = 5, deviceId } = options
 
   const [status, setStatus] = useState<RecorderStatus>("idle")
+  const [lastError, setLastError] = useState<string | null>(null)
   const [chunks, setChunks] = useState<WavChunk[]>([])
   const [elapsed, setElapsed] = useState(0)
   const [stream, setStream] = useState<MediaStream | null>(null)
@@ -115,7 +116,14 @@ export function useRecorder(options: UseRecorderOptions = {}) {
     if (statusRef.current === "recording") return
 
     setStatus("requesting")
+    setLastError(null)
     try {
+      if (!window.isSecureContext) {
+        throw new Error(
+          "Microphone access requires a secure context. Open the app on http://localhost:3001 (or HTTPS)."
+        )
+      }
+
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         audio: deviceId
           ? { deviceId: { exact: deviceId }, echoCancellation: true, noiseSuppression: true }
@@ -183,7 +191,10 @@ export function useRecorder(options: UseRecorderOptions = {}) {
           )
         }
       }, 100)
-    } catch {
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to access microphone."
+      setLastError(message)
       setStatus("idle")
     }
   }, [deviceId, chunkThreshold])
@@ -234,5 +245,16 @@ export function useRecorder(options: UseRecorderOptions = {}) {
     }
   }, [])
 
-  return { status, start, stop, pause, resume, chunks, elapsed, stream, clearChunks }
+  return {
+    status,
+    start,
+    stop,
+    pause,
+    resume,
+    chunks,
+    elapsed,
+    stream,
+    clearChunks,
+    lastError,
+  }
 }
